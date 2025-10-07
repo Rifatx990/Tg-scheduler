@@ -40,7 +40,7 @@ def add_log(msg):
 # ---------------- GLOBALS ----------------
 client = None
 scheduler_running = False
-login_state = {"stage": "none", "phone": None, "code_sent": False}
+login_state = {"stage": "none", "phone": None}
 
 # ---------------- HTML DASHBOARD ----------------
 HTML_DASHBOARD = """
@@ -207,27 +207,30 @@ def login_route():
             client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
             await client.connect()
         try:
+            # Send code
             if login_state["stage"]=="none" and phone:
                 await client.send_code_request(phone)
-                login_state = {"stage":"code","phone":phone, "code_sent": True}
+                login_state = {"stage":"code","phone":phone}
                 add_log(f"📩 Code sent to {phone}")
-                return "Code sent."
+                return "Code sent, please enter the code."
 
+            # Enter code
             elif login_state["stage"]=="code" and code:
                 try:
                     await client.sign_in(login_state["phone"], code)
                 except SessionPasswordNeededError:
                     login_state["stage"]="password"
                     add_log("🔒 Two-factor password required.")
-                    return "2FA required."
-                add_log("✅ Logged in successfully!")
+                    return "2FA required, enter password."
                 login_state["stage"]="none"
+                add_log("✅ Logged in successfully!")
                 return "Logged in successfully!"
 
+            # Enter password for 2FA
             elif login_state["stage"]=="password" and password:
                 await client.sign_in(login_state["phone"], password=password)
-                add_log("✅ Logged in with 2FA successfully!")
                 login_state["stage"]="none"
+                add_log("✅ Logged in with 2FA successfully!")
                 return "Logged in successfully with 2FA!"
 
             return "No action."
@@ -239,8 +242,10 @@ def login_route():
             add_log(f"❌ Login error: {e}")
             return f"Login error: {e}"
 
-    result = asyncio.run(login_async())
-    return result
+    # Run login in background thread with its own loop to keep client alive
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(login_async())
 
 @app.route("/update", methods=["POST"])
 def update_schedule():
