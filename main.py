@@ -16,7 +16,7 @@ load_dotenv()
 # ---------------- CONFIG ----------------
 API_ID = int(os.getenv("API_ID", 0))
 API_HASH = os.getenv("API_HASH", "")
-SESSION_NAME = "rifat_session"  # Telegram session file
+SESSION_NAME = "rifat_session"
 SCHEDULE_FILE = "schedule.json"
 TIMEZONE = "Asia/Dhaka"
 PORT = int(os.getenv("PORT", 10000))
@@ -239,7 +239,6 @@ def login_route():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(login_async())
 
-    # Redirect to dashboard to show next form (code or 2FA)
     return redirect(url_for("dashboard"))
 
 @app.route("/update", methods=["POST"])
