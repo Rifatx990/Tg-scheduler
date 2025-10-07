@@ -39,9 +39,8 @@ def add_log(msg):
 
 # ---------------- GLOBALS ----------------
 client = None
-scheduler_task = None
 scheduler_running = False
-login_state = {"stage": "none", "phone": None}
+login_state = {"stage": "none", "phone": None, "code_sent": False}
 
 # ---------------- HTML DASHBOARD ----------------
 HTML_DASHBOARD = """
@@ -119,7 +118,7 @@ async def ensure_client():
 async def send_message(to, message, file_path=None):
     c = await ensure_client()
     try:
-        if file_path:
+        if file_path and os.path.exists(file_path):
             await c.send_file(to, file_path, caption=message)
         else:
             await c.send_message(to, message)
@@ -160,22 +159,26 @@ async def schedule_task_runner(task):
         if task["type"]=="date": break
         await asyncio.sleep(60)
 
-async def scheduler_loop():
-    global scheduler_running
-    scheduler_running = True
-    add_log("✅ Scheduler started.")
-    tasks = load_schedules()
-    runners = [asyncio.create_task(schedule_task_runner(task)) for task in tasks]
-    if runners: await asyncio.gather(*runners)
-    add_log("🛑 Scheduler stopped.")
-
 def start_scheduler():
-    global scheduler_task
-    if scheduler_task and not scheduler_task.done():
+    global scheduler_running
+    if scheduler_running:
         add_log("⚠️ Scheduler already running.")
         return
-    loop = asyncio.get_event_loop()
-    scheduler_task = loop.create_task(scheduler_loop())
+    scheduler_running = True
+
+    def run_loop():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(run_scheduler_tasks())
+
+    threading.Thread(target=run_loop, daemon=True).start()
+
+async def run_scheduler_tasks():
+    tasks = load_schedules()
+    runners = [asyncio.create_task(schedule_task_runner(task)) for task in tasks]
+    add_log("✅ Scheduler started.")
+    if runners: await asyncio.gather(*runners)
+    add_log("🛑 Scheduler finished.")
 
 def stop_scheduler():
     global scheduler_running
@@ -204,11 +207,14 @@ def login_route():
             client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
             await client.connect()
         try:
+            # Step 1: send code
             if login_state["stage"]=="none" and phone:
                 await client.send_code_request(phone)
-                login_state = {"stage":"code","phone":phone}
+                login_state = {"stage":"code","phone":phone, "code_sent": True}
                 add_log(f"📩 Code sent to {phone}")
                 return
+
+            # Step 2: enter code
             elif login_state["stage"]=="code" and code:
                 try:
                     await client.sign_in(login_state["phone"], code)
@@ -218,25 +224,20 @@ def login_route():
                     return
                 add_log("✅ Logged in successfully!")
                 login_state["stage"]="none"
+
+            # Step 3: enter 2FA password
             elif login_state["stage"]=="password" and password:
                 await client.sign_in(login_state["phone"], password=password)
                 add_log("✅ Logged in with 2FA successfully!")
                 login_state["stage"]="none"
+
         except PhoneCodeInvalidError:
             add_log("❌ Invalid code. Retry.")
         except Exception as e:
             add_log(f"❌ Login error: {e}")
 
-    # Run async safely
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            threading.Thread(target=lambda: loop.run_until_complete(login_async())).start()
-        else:
-            loop.run_until_complete(login_async())
-    except RuntimeError:
-        asyncio.run(login_async())
-
+    # Run async safely in background thread
+    threading.Thread(target=lambda: asyncio.run(login_async()), daemon=True).start()
     return "✅ Login attempt done. Refresh dashboard."
 
 @app.route("/update", methods=["POST"])
@@ -267,6 +268,5 @@ def logs_route(): return jsonify({"logs":LOG_HISTORY})
 
 # ---------------- MAIN ----------------
 if __name__=="__main__":
-    add_log("🌐 Render web dashboard ready with Telegram login.")
-    port = int(os.environ.get("PORT", PORT))
-    app.run(host="0.0.0.0", port=port, threaded=True)
+    add_log("🌐 Dashboard ready. Telegram login required.")
+    app.run(host="0.0.0.0", port=PORT, threaded=True)
