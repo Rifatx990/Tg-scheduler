@@ -1,0 +1,16 @@
+[
+  {
+    "type": "date",
+    "when": "2025-10-08 09:00",
+    "to": "7835120285",
+    "message": "Good morning 🌞 — here’s your video!",
+    "file": "video1.mp4"
+  },
+  {
+    "type": "cron",
+    "time": "00:00",
+    "to": "@username_or_userid",
+    "message": "Daily reminder at midnight 🌙",
+    "file": null
+  }
+]
