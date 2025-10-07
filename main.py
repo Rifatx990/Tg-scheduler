@@ -111,7 +111,8 @@ async def ensure_client():
     global client
     if client is None:
         client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-    if not client.is_connected():
+        await client.connect()
+    elif not client.is_connected():
         await client.connect()
     return client
 
@@ -173,7 +174,8 @@ def start_scheduler():
     if scheduler_task and not scheduler_task.done():
         add_log("⚠️ Scheduler already running.")
         return
-    scheduler_task = asyncio.create_task(scheduler_loop())
+    loop = asyncio.get_event_loop()
+    scheduler_task = loop.create_task(scheduler_loop())
 
 def stop_scheduler():
     global scheduler_running
@@ -198,8 +200,9 @@ def login_route():
 
     async def login_async():
         global client, login_state
-        client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-        await client.connect()
+        if client is None:
+            client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+            await client.connect()
         try:
             if login_state["stage"]=="none" and phone:
                 await client.send_code_request(phone)
@@ -215,12 +218,25 @@ def login_route():
                     return
                 add_log("✅ Logged in successfully!")
                 login_state["stage"]="none"
+            elif login_state["stage"]=="password" and password:
+                await client.sign_in(login_state["phone"], password=password)
+                add_log("✅ Logged in with 2FA successfully!")
+                login_state["stage"]="none"
         except PhoneCodeInvalidError:
             add_log("❌ Invalid code. Retry.")
         except Exception as e:
             add_log(f"❌ Login error: {e}")
 
-    asyncio.run(login_async())
+    # Run async safely
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            threading.Thread(target=lambda: loop.run_until_complete(login_async())).start()
+        else:
+            loop.run_until_complete(login_async())
+    except RuntimeError:
+        asyncio.run(login_async())
+
     return "✅ Login attempt done. Refresh dashboard."
 
 @app.route("/update", methods=["POST"])
@@ -253,4 +269,4 @@ def logs_route(): return jsonify({"logs":LOG_HISTORY})
 if __name__=="__main__":
     add_log("🌐 Render web dashboard ready with Telegram login.")
     port = int(os.environ.get("PORT", PORT))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True)
