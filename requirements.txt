@@ -1,5 +1,5 @@
-Flask==2.3.3
-telethon==1.35.0
-pytz==2025.7
-python-dotenv==1.0.0
-Werkzeug==3.1.2
+pytz
+telethon
+flask
+python-dotenv
+Werkzeug
