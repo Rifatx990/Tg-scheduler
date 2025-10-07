@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytz
 import json
 import os
-from flask import Flask, request, render_template_string, jsonify
+from flask import Flask, request, render_template_string, jsonify, redirect, url_for
 import threading
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
@@ -207,45 +207,40 @@ def login_route():
             client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
             await client.connect()
         try:
-            # Send code
             if login_state["stage"]=="none" and phone:
                 await client.send_code_request(phone)
                 login_state = {"stage":"code","phone":phone}
                 add_log(f"📩 Code sent to {phone}")
-                return "Code sent, please enter the code."
+                return
 
-            # Enter code
             elif login_state["stage"]=="code" and code:
                 try:
                     await client.sign_in(login_state["phone"], code)
                 except SessionPasswordNeededError:
                     login_state["stage"]="password"
                     add_log("🔒 Two-factor password required.")
-                    return "2FA required, enter password."
+                    return
                 login_state["stage"]="none"
                 add_log("✅ Logged in successfully!")
-                return "Logged in successfully!"
+                return
 
-            # Enter password for 2FA
             elif login_state["stage"]=="password" and password:
                 await client.sign_in(login_state["phone"], password=password)
                 login_state["stage"]="none"
                 add_log("✅ Logged in with 2FA successfully!")
-                return "Logged in successfully with 2FA!"
-
-            return "No action."
+                return
 
         except PhoneCodeInvalidError:
             add_log("❌ Invalid code. Retry.")
-            return "Invalid code."
         except Exception as e:
             add_log(f"❌ Login error: {e}")
-            return f"Login error: {e}"
 
-    # Run login in background thread with its own loop to keep client alive
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    return loop.run_until_complete(login_async())
+    loop.run_until_complete(login_async())
+
+    # Redirect to dashboard to show next form (code or 2FA)
+    return redirect(url_for("dashboard"))
 
 @app.route("/update", methods=["POST"])
 def update_schedule():
