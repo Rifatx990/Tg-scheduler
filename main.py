@@ -207,38 +207,40 @@ def login_route():
             client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
             await client.connect()
         try:
-            # Step 1: send code
             if login_state["stage"]=="none" and phone:
                 await client.send_code_request(phone)
                 login_state = {"stage":"code","phone":phone, "code_sent": True}
                 add_log(f"📩 Code sent to {phone}")
-                return
+                return "Code sent."
 
-            # Step 2: enter code
             elif login_state["stage"]=="code" and code:
                 try:
                     await client.sign_in(login_state["phone"], code)
                 except SessionPasswordNeededError:
                     login_state["stage"]="password"
                     add_log("🔒 Two-factor password required.")
-                    return
+                    return "2FA required."
                 add_log("✅ Logged in successfully!")
                 login_state["stage"]="none"
+                return "Logged in successfully!"
 
-            # Step 3: enter 2FA password
             elif login_state["stage"]=="password" and password:
                 await client.sign_in(login_state["phone"], password=password)
                 add_log("✅ Logged in with 2FA successfully!")
                 login_state["stage"]="none"
+                return "Logged in successfully with 2FA!"
+
+            return "No action."
 
         except PhoneCodeInvalidError:
             add_log("❌ Invalid code. Retry.")
+            return "Invalid code."
         except Exception as e:
             add_log(f"❌ Login error: {e}")
+            return f"Login error: {e}"
 
-    # Run async safely in background thread
-    threading.Thread(target=lambda: asyncio.run(login_async()), daemon=True).start()
-    return "✅ Login attempt done. Refresh dashboard."
+    result = asyncio.run(login_async())
+    return result
 
 @app.route("/update", methods=["POST"])
 def update_schedule():
@@ -258,15 +260,26 @@ def update_schedule():
         return f"❌ {e}"
 
 @app.route("/start",methods=["POST"])
-def start_route(): start_scheduler(); return jsonify({"status":"started"})
+def start_route(): 
+    start_scheduler()
+    return jsonify({"status":"started"})
+
 @app.route("/stop",methods=["POST"])
-def stop_route(): stop_scheduler(); return jsonify({"status":"stopped"})
+def stop_route(): 
+    stop_scheduler()
+    return jsonify({"status":"stopped"})
+
 @app.route("/reload",methods=["POST"])
-def reload_route(): add_log("🔁 Reloaded."); return jsonify({"status":"reloaded"})
+def reload_route(): 
+    add_log("🔁 Reloaded.")
+    return jsonify({"status":"reloaded"})
+
 @app.route("/logs")
-def logs_route(): return jsonify({"logs":LOG_HISTORY})
+def logs_route(): 
+    return jsonify({"logs":LOG_HISTORY})
 
 # ---------------- MAIN ----------------
 if __name__=="__main__":
     add_log("🌐 Dashboard ready. Telegram login required.")
-    app.run(host="0.0.0.0", port=PORT, threaded=True)
+    port = int(os.environ.get("PORT", PORT))
+    app.run(host="0.0.0.0", port=port)
